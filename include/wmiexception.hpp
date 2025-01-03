@@ -1,8 +1,9 @@
 /**
-  *
-  * WMI
-  * @author Thomas Sparber (2016)
-  *
+ *
+ * WMI
+ * @author Thomas Sparber (2016)
+ * modified by Ricardo Carvalho @crvvdev (2024)
+ *
  **/
 
 #ifndef WMIEXCEPTION_HPP

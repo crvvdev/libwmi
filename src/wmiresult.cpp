@@ -1,289 +1,332 @@
 /**
-  *
-  * WMI
-  * @author Thomas Sparber (2016)
-  *
+ *
+ * WMI
+ * @author Thomas Sparber (2016)
+ * modified by Ricardo Carvalho @crvvdev (2024)
+ *
  **/
+
+#include <Windows.h>
 
 #include <algorithm>
 #include <codecvt>
 #include <locale>
 
+#include <wmi.hpp>
 #include <wmiresult.hpp>
-
-using std::codecvt_utf8;
-using std::string;
-using std::transform;
-using std::vector;
-using std::wstring;
-using std::wstring_convert;
 
 using namespace Wmi;
 
-wstring unescape(wstring str)
-{
-	size_t start_pos = 0;
-	const wstring from = L"\\\"";
-	const wstring to = L"\"";
+std::wstring unescape(std::wstring str) {
+  size_t start_pos = 0;
+  const std::wstring from = L"\\\"";
+  const std::wstring to = L"\"";
 
-    while((start_pos = str.find(from, start_pos)) != string::npos)
-	{
-        str.replace(start_pos, from.length(), to);
-        start_pos += to.length();
+  while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
+    str.replace(start_pos, from.length(), to);
+    start_pos += to.length();
+  }
+
+  return str;
+}
+
+bool tokenize(const std::wstring& str, std::vector<std::wstring>& out) {
+  size_t start_pos = str.find(L"[");
+
+  if (start_pos == std::string::npos)
+    return false;
+
+  do {
+    start_pos++;
+    size_t end_pos = start_pos;
+    size_t temp_pos = start_pos;
+
+    while (end_pos != start_pos && temp_pos != std::string::npos &&
+           temp_pos == end_pos) {
+      end_pos = str.find(L"\"", temp_pos + 2);
+      temp_pos = str.find(L"\\\"", temp_pos);
     }
 
-    return str;
+    temp_pos = str.find(L",", end_pos);
+    if (temp_pos == std::string::npos)
+      temp_pos = str.find(L"]", end_pos);
+    end_pos = temp_pos;
+
+    std::wstring token =
+        str.substr(str[start_pos] == L'\"' ? start_pos + 1 : start_pos,
+                   str[start_pos] == L'\"' ? (end_pos - start_pos - 2)
+                                           : (end_pos - start_pos));
+    out.push_back(unescape(token));
+
+    start_pos = end_pos;
+    end_pos = start_pos;
+    temp_pos = start_pos;
+  } while (start_pos != std::string::npos && start_pos + 1 != str.length());
+
+  return true;
 }
 
-bool tokenize(const wstring &str, vector<wstring> &out)
-{
-	size_t start_pos = str.find(L"[");
+void WmiResult::set(std::size_t index,
+                    std::wstring name,
+                    const std::wstring& value) {
+  while (index >= result.size())
+    result.emplace_back();
 
-	if(start_pos == string::npos)return false;
+  std::transform(name.begin(), name.end(), name.begin(),
+                 [](wchar_t c) { return towlower(c); });
 
-	do
-	{
-		start_pos++;
-		size_t end_pos = start_pos;
-		size_t temp_pos = start_pos;
-
-		while(end_pos != start_pos && temp_pos != string::npos && temp_pos == end_pos)
-		{
-			end_pos = str.find(L"\"", temp_pos+2);
-			temp_pos = str.find(L"\\\"", temp_pos);
-		}
-
-		temp_pos = str.find(L",", end_pos);
-		if(temp_pos == string::npos)temp_pos = str.find(L"]", end_pos);
-		end_pos = temp_pos;
-
-		wstring token = str.substr(str[start_pos] == L'\"' ? start_pos+1 : start_pos, str[start_pos] == L'\"' ? (end_pos - start_pos - 2) : (end_pos - start_pos));
-		out.push_back(unescape(token));
-
-		start_pos = end_pos;
-		end_pos = start_pos;
-		temp_pos = start_pos;
-	}
-	while(start_pos != string::npos && start_pos+1 != str.length());
-
-	return true;
+  result[index][name] = value;
 }
 
-void WmiResult::set(std::size_t index, wstring name, const wstring &value)
-{
-	while(index >= result.size())result.emplace_back();
+bool WmiResult::extract(std::size_t index,
+                        const std::string& name,
+                        std::wstring& out) const {
+  if (index >= result.size())
+    return false;
 
-	transform(name.begin(), name.end(), name.begin(), ::tolower);
-	result[index][name] = value;
+  std::wstring key(name.cbegin(), name.cend());
+  std::transform(key.begin(), key.end(), key.begin(),
+                 [](wchar_t c) { return towlower(c); });
+
+  auto found = result[index].find(key);
+  if (found == result[index].cend())
+    return false;
+
+  out = found->second;
+  return true;
 }
 
-bool WmiResult::extract(std::size_t index, const string &name, wstring &out) const
-{
-	if(index >= result.size())return false;
+bool WmiResult::extract(std::size_t index,
+                        const std::string& name,
+                        std::string& out) const {
+  std::wstring temp;
+  if (!extract(index, name, temp))
+    return false;
 
-	wstring key(name.cbegin(), name.cend());
-	transform(key.begin(), key.end(), key.begin(), ::tolower);
+  out = wstrtostr(temp);
 
-	auto found = result[index].find(key);
-	if(found == result[index].cend())return false;
-	
-	out = found->second;
-	return true;
+  return true;
 }
 
-bool WmiResult::extract(std::size_t index, const string &name, string &out) const
-{
-	wstring temp;
-	if(!extract(index, name, temp))return false;
+bool WmiResult::extract(std::size_t index,
+                        const std::string& name,
+                        int& out) const {
+  std::string temp;
+  if (!extract(index, name, temp))
+    return false;
 
-	wstring_convert<codecvt_utf8<wchar_t>> myconv;
-	out = myconv.to_bytes(temp);
-	return true;
+  char* test;
+  out = strtol(temp.c_str(), &test, 0);
+  return (test == temp.c_str() + temp.length());
 }
 
-bool WmiResult::extract(std::size_t index, const string &name, int &out) const
-{
-	string temp;
-	if(!extract(index, name, temp))return false;
-	
-	char *test;
-	out = strtol(temp.c_str(), &test, 0);
-	return (test == temp.c_str() + temp.length());
+bool WmiResult::extract(std::size_t index,
+                        const std::string& name,
+                        bool& out) const {
+  std::string temp;
+  if (!extract(index, name, temp))
+    return false;
+
+  std::transform(temp.begin(), temp.end(), temp.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+
+  if (temp == "true" || temp == "1")
+    out = true;
+  else if (temp == "false" || temp == "0")
+    out = false;
+  else
+    return false;
+
+  return true;
 }
 
-bool WmiResult::extract(std::size_t index, const string &name, bool &out) const
-{
-	string temp;
-	if(!extract(index, name, temp))return false;
+bool WmiResult::extract(std::size_t index,
+                        const std::string& name,
+                        uint64_t& out) const {
+  std::string temp;
+  if (!extract(index, name, temp))
+    return false;
 
-	transform(temp.begin(), temp.end(), temp.begin(), ::tolower);
-	if(temp == "true" || temp == "1")out = true;
-	else if(temp == "false" || temp == "0")out = false;
-	else return false;
-	
-	return true;
+  char* test;
+  out = strtoull(temp.c_str(), &test, 0);
+  return (test == temp.c_str() + temp.length());
 }
 
-bool WmiResult::extract(std::size_t index, const string &name, uint64_t &out) const
-{
-	string temp;
-	if(!extract(index, name, temp))return false;
-	
-	char *test;
-	out = strtoull(temp.c_str(), &test, 0);
-	return (test == temp.c_str() + temp.length());
+bool WmiResult::extract(std::size_t index,
+                        const std::string& name,
+                        uint32_t& out) const {
+  std::string temp;
+  if (!extract(index, name, temp))
+    return false;
+
+  char* test;
+  out = (uint32_t)std::strtoul(temp.c_str(), &test, 0);
+  return (test == temp.c_str() + temp.length());
 }
 
-bool WmiResult::extract(std::size_t index, const string &name, uint32_t &out) const
-{
-	string temp;
-	if(!extract(index, name, temp))return false;
-	
-	char *test;
-	out = (uint32_t)std::strtoul(temp.c_str(), &test, 0);
-	return (test == temp.c_str() + temp.length());
+bool WmiResult::extract(std::size_t index,
+                        const std::string& name,
+                        uint16_t& out) const {
+  std::string temp;
+  if (!extract(index, name, temp))
+    return false;
+
+  char* test;
+  out = (uint16_t)std::strtoul(temp.c_str(), &test, 0);
+  return (test == temp.c_str() + temp.length());
 }
 
-bool WmiResult::extract(std::size_t index, const string &name, uint16_t &out) const
-{
-	string temp;
-	if(!extract(index, name, temp))return false;
-	
-	char *test;
-	out = (uint16_t)std::strtoul(temp.c_str(), &test, 0);
-	return (test == temp.c_str() + temp.length());
+bool WmiResult::extract(std::size_t index,
+                        const std::string& name,
+                        uint8_t& out) const {
+  std::string temp;
+  if (!extract(index, name, temp))
+    return false;
+
+  char* test;
+  out = (uint8_t)std::strtoul(temp.c_str(), &test, 0);
+  return (test == temp.c_str() + temp.length());
 }
 
-bool WmiResult::extract(std::size_t index, const string &name, uint8_t &out) const
-{
-	string temp;
-	if(!extract(index, name, temp))return false;
-	
-	char *test;
-	out = (uint8_t)std::strtoul(temp.c_str(), &test, 0);
-	return (test == temp.c_str() + temp.length());
+bool WmiResult::extract(std::size_t index,
+                        const std::string& name,
+                        std::vector<std::wstring>& out) const {
+  std::wstring temp;
+  if (!extract(index, name, temp))
+    return false;
+
+  if (!tokenize(temp, out))
+    return false;
+
+  return true;
 }
 
-bool WmiResult::extract(std::size_t index, const string &name, vector<wstring> &out) const
-{
-	wstring temp;
-	if(!extract(index, name, temp))return false;
+bool WmiResult::extract(std::size_t index,
+                        const std::string& name,
+                        std::vector<std::string>& out) const {
+  std::vector<std::wstring> tokens;
+  if (!extract(index, name, tokens))
+    return false;
 
-	if(!tokenize(temp, out))return false;
-
-	return true;
+  out.resize(tokens.size());
+  for (std::size_t i = 0; i < tokens.size(); ++i) {
+    out[i] = wstrtostr(tokens[i]);
+  }
+  return true;
 }
 
-bool WmiResult::extract(std::size_t index, const string &name, vector<string> &out) const
-{
-	vector<wstring> tokens;
-	if(!extract(index, name, tokens))return false;
+bool WmiResult::extract(std::size_t index,
+                        const std::string& name,
+                        std::vector<int>& out) const {
+  std::vector<std::string> tokens;
+  if (!extract(index, name, tokens))
+    return false;
 
-	out.resize(tokens.size());
-	for(std::size_t i = 0; i < tokens.size(); ++i)
-	{
-		wstring_convert<codecvt_utf8<wchar_t>> myconv;
-		const wstring &temp = tokens[i];
-		out[i] = myconv.to_bytes(temp);
-	}
+  out.resize(tokens.size());
 
-	return true;
+  for (std::size_t i = 0; i < tokens.size(); ++i) {
+    char* test;
+    out[i] = strtol(tokens[i].c_str(), &test, 0);
+
+    if (test != tokens[i].c_str() + tokens[i].length())
+      return false;
+  }
+  return true;
 }
 
-bool WmiResult::extract(std::size_t index, const string &name, vector<int> &out) const
-{
-	vector<string> tokens;
-	if(!extract(index, name, tokens))return false;
+bool WmiResult::extract(std::size_t index,
+                        const std::string& name,
+                        std::vector<bool>& out) const {
+  std::vector<std::string> tokens;
+  if (!extract(index, name, tokens))
+    return false;
 
-	out.resize(tokens.size());
-	for(std::size_t i = 0; i < tokens.size(); ++i)
-	{
-		char *test;
-		out[i] = strtol(tokens[i].c_str(), &test, 0);
-		return (test == tokens[i].c_str() + tokens[i].length());
-	}
+  out.resize(tokens.size());
+  for (std::size_t i = 0; i < tokens.size(); ++i) {
+    std::string temp = tokens[i];
+    std::transform(temp.begin(), temp.end(), temp.begin(), [](unsigned char c) {
+      return static_cast<char>(std::tolower(c));
+    });
+    if (temp == "true" || temp == "1")
+      out[i] = true;
+    else if (temp == "false" || temp == "0")
+      out[i] = false;
+    else
+      return false;
+  }
 
-	return true;
+  return true;
 }
 
-bool WmiResult::extract(std::size_t index, const string &name, vector<bool> &out) const
-{
-	vector<string> tokens;
-	if(!extract(index, name, tokens))return false;
+bool WmiResult::extract(std::size_t index,
+                        const std::string& name,
+                        std::vector<uint64_t>& out) const {
+  std::vector<std::string> tokens;
+  if (!extract(index, name, tokens))
+    return false;
 
-	out.resize(tokens.size());
-	for(std::size_t i = 0; i < tokens.size(); ++i)
-	{
-		string temp = tokens[i];
-		transform(temp.begin(), temp.end(), temp.begin(), ::tolower);
-		if(temp == "true" || temp == "1")out[i] = true;
-		else if(temp == "false" || temp == "0")out[i] = false;
-		else return false;
-	}
+  out.resize(tokens.size());
+  for (std::size_t i = 0; i < tokens.size(); ++i) {
+    char* test;
+    out[i] = strtoull(tokens[i].c_str(), &test, 0);
+    if (test != tokens[i].c_str() + tokens[i].length())
+      return false;
+  }
 
-	return true;
+  return true;
 }
 
-bool WmiResult::extract(std::size_t index, const string &name, vector<uint64_t> &out) const
-{
-	vector<string> tokens;
-	if(!extract(index, name, tokens))return false;
+bool WmiResult::extract(std::size_t index,
+                        const std::string& name,
+                        std::vector<uint32_t>& out) const {
+  std::vector<std::string> tokens;
+  if (!extract(index, name, tokens))
+    return false;
 
-	out.resize(tokens.size());
-	for(std::size_t i = 0; i < tokens.size(); ++i)
-	{
-		char *test;
-		out[i] = strtoull(tokens[i].c_str(), &test, 0);
-		if(test != tokens[i].c_str() + tokens[i].length()) return false;
-	}
+  out.resize(tokens.size());
+  for (std::size_t i = 0; i < tokens.size(); ++i) {
+    char* test;
+    out[i] = (uint32_t)strtoul(tokens[i].c_str(), &test, 0);
+    if (test != tokens[i].c_str() + tokens[i].length())
+      return false;
+  }
 
-	return true;
+  return true;
 }
 
-bool WmiResult::extract(std::size_t index, const string &name, vector<uint32_t> &out) const
-{
-	vector<string> tokens;
-	if(!extract(index, name, tokens))return false;
+bool WmiResult::extract(std::size_t index,
+                        const std::string& name,
+                        std::vector<uint16_t>& out) const {
+  std::vector<std::string> tokens;
+  if (!extract(index, name, tokens))
+    return false;
 
-	out.resize(tokens.size());
-	for(std::size_t i = 0; i < tokens.size(); ++i)
-	{
-		char *test;
-		out[i] = (uint32_t)strtoul(tokens[i].c_str(), &test, 0);
-		if (test != tokens[i].c_str() + tokens[i].length()) return false;
-	}
+  out.resize(tokens.size());
+  for (std::size_t i = 0; i < tokens.size(); ++i) {
+    char* test;
+    out[i] = (uint16_t)strtoul(tokens[i].c_str(), &test, 0);
+    if (test != tokens[i].c_str() + tokens[i].length())
+      return false;
+  }
 
-	return true;
+  return true;
 }
 
-bool WmiResult::extract(std::size_t index, const string &name, vector<uint16_t> &out) const
-{
-	vector<string> tokens;
-	if(!extract(index, name, tokens))return false;
+bool WmiResult::extract(std::size_t index,
+                        const std::string& name,
+                        std::vector<uint8_t>& out) const {
+  std::vector<std::string> tokens;
+  if (!extract(index, name, tokens))
+    return false;
 
-	out.resize(tokens.size());
-	for(std::size_t i = 0; i < tokens.size(); ++i)
-	{
-		char *test;
-		out[i] = (uint16_t)strtoul(tokens[i].c_str(), &test, 0);
-		if (test != tokens[i].c_str() + tokens[i].length()) return false;
-	}
+  out.resize(tokens.size());
+  for (std::size_t i = 0; i < tokens.size(); ++i) {
+    char* test;
+    out[i] = (uint8_t)strtoul(tokens[i].c_str(), &test, 0);
+    if (test != tokens[i].c_str() + tokens[i].length())
+      return false;
+  }
 
-	return true;
-}
-
-bool WmiResult::extract(std::size_t index, const string &name, vector<uint8_t> &out) const
-{
-	vector<string> tokens;
-	if(!extract(index, name, tokens))return false;
-
-	out.resize(tokens.size());
-	for(std::size_t i = 0; i < tokens.size(); ++i)
-	{
-		char *test;
-		out[i] = (uint8_t)strtoul(tokens[i].c_str(), &test, 0);
-		if (test != tokens[i].c_str() + tokens[i].length()) return false;
-	}
-
-	return true;
+  return true;
 }
