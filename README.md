@@ -2,6 +2,9 @@ WMI
 ===
 
 Created by Thomas Sparber 2016
+Modified by Ricardo Carvalho 2024
+
+Modifications include correct UTF16 to ASCII conversion, as well as some other minor stuff.
 
 GOAL
 ----
@@ -91,3 +94,9 @@ WMI classes, but it is also very easy to add more of them. All you need to do is
     }; //end struct Win32_ComputerSystem
 ```
 These two functions are the only requirements your class needs to have.
+
+
+## Compiling
+
+This project is CMake compatible.
+Tested and working Visual Studio 2022.
