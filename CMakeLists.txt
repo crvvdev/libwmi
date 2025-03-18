@@ -1,11 +1,14 @@
 cmake_minimum_required(VERSION 2.6...3.20)
 project (Wmi)
+
+# CMAKE_VS_INCLUDE_INSTALL_TO_DEFAULT_BUILD will enable the INSTALL target to be part of the default build
+set(CMAKE_VS_INCLUDE_INSTALL_TO_DEFAULT_BUILD 1)
+
 set (CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -c -O2 -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64")
 
 set(WMISOURCES ${PROJECT_SOURCE_DIR}/src/wmi.cpp  ${PROJECT_SOURCE_DIR}/src/wmiresult.cpp) 
 include_directories(${TOTAL_INCLUDES}  ${PROJECT_SOURCE_DIR}/include)
-
 
 add_library(wmi STATIC  ${WMISOURCES})
 add_library(diaa_sami_comsupp STATIC ${PROJECT_SOURCE_DIR}/diaa_sami_comsupp/diaa_sami_comsupp.cpp)
@@ -22,3 +25,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 set(CMAKE_BINARY_DIR ${CMAKE_SOURCE_DIR}/bin)
 set(EXECUTABLE_OUTPUT_PATH ${CMAKE_SOURCE_DIR}/bin)
+
+# Install
+install(TARGETS wmi diaa_sami_comsupp test_wmi ARCHIVE DESTINATION lib LIBRARY DESTINATION lib RUNTIME DESTINATION bin) 
+install(DIRECTORY ${PROJECT_SOURCE_DIR}/include/ DESTINATION include)
